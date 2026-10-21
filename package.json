@@ -1,0 +1,37 @@
+{
+  "name": "dsh-job-progress",
+  "version": "0.1.0",
+  "private": true,
+  "description": "悬浮卡片显示后台任务的下载/运行进度：进度条、百分比、速度、剩余时间和最新输出",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-jobs",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  }
+}
