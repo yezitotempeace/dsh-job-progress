@@ -19,6 +19,7 @@
 ## 交互
 
 - 点标题栏收起成右下角小胶囊：`后台任务 2 个` + 总进度条 + 平均百分比；再点展开。
+- **整张卡片可以拖动**：按住标题栏拖到屏幕任意位置，位置记在浏览器（`localStorage` 的 `dsh-job-progress/position`），刷新后还在；收起后的胶囊也能拖。拖出屏幕会被拉回可视区。
 - 任务结束后保留 **8 秒**显示最终状态，然后卡片消失（没有任务时完全不渲染）。
 - 只观察**当前会话**的任务；输出流按需订阅，卡片卸载或任务结束即释放。
 
@@ -38,7 +39,8 @@ wget、curl（默认表格和 `-#` 进度条）、apt、pip、npm，以及任何
 | 数据 | `ctx.jobs.state`（roster）+ `ctx.jobs.watchRows(sessionId)` + `ctx.jobs.observe(sessionId, id)` |
 | 挂载 | `conversation.session.header.actions`（只取 `sessionId`），内容用 `createPortal` 渲染到 `document.body` |
 | 进度解析 | 纯函数 `parseProgress(text)`：去 ANSI → 按 `\r\n` 切 → 从尾部找 `%` / curl 表格 → 速度、ETA、字节比 |
-| 渲染 | 固定右下角，`z-index: 60`，`bottom` 含安全区偏移；主题 token 取色 |
+| 渲染 | 固定定位，`z-index: 60`，默认右下角（`bottom` 含安全区偏移），主题 token 取色 |
+| 拖动 | pointer 事件 + `setPointerCapture`；移动超过 4px 才算拖，否则算点击；位置钳制在视口内并写 `localStorage` |
 
 不读会话内容，不发额外网络请求（只订阅任务输出流）。
 
@@ -50,7 +52,7 @@ node test/smoke.mjs
 ```
 
 覆盖：bundle 注册与 inject、`parseProgress` 的 wget/apt/curl 表格/curl 进度条/pip/ANSI/
-`\r` 刷新/字节比/ETA、普通日志不误判、空输出。
+`\r` 刷新/字节比/ETA、普通日志不误判、空输出、拖动位置的边界钳制。
 
 ## 安装
 
