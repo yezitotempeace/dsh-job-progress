@@ -226,14 +226,12 @@ window.__ModuleLoader__.load({
 		 * @param ref - the element being moved.
 		 * @param onTap - runs for a press that did not turn into a drag.
 		 */
-		function useDraggable(ref, onTap) {
+		function useDraggable(ref) {
 			const [position, setPositionState] = React.useState(readSavedPosition);
 			const [dragging, setDragging] = React.useState(false);
 			const positionRef = React.useRef(position);
 			const dragRef = React.useRef(null);
 			const movedRef = React.useRef(false);
-			const tapRef = React.useRef(onTap);
-			tapRef.current = onTap;
 			const setPosition = React.useCallback((next) => {
 				positionRef.current = next;
 				setPositionState(next);
@@ -251,9 +249,15 @@ window.__ModuleLoader__.load({
 				window.addEventListener("resize", onResize);
 				return () => window.removeEventListener("resize", onResize);
 			}, [ref, setPosition]);
+			const consumeDrag = React.useCallback(() => {
+				if (!movedRef.current) return false;
+				movedRef.current = false;
+				return true;
+			}, []);
 			return {
 				position,
 				dragging,
+				consumeDrag,
 				handlers: {
 					onPointerDown(event) {
 						if (event.button !== undefined && event.button !== 0) return;
@@ -283,11 +287,7 @@ window.__ModuleLoader__.load({
 						setDragging(false);
 						ref.current?.releasePointerCapture?.(event.pointerId);
 						if (drag === null) return;
-						if (movedRef.current) {
-							if (positionRef.current !== null) savePosition(positionRef.current);
-							return;
-						}
-						tapRef.current?.();
+						if (movedRef.current && positionRef.current !== null) savePosition(positionRef.current);
 					},
 					onPointerCancel() {
 						dragRef.current = null;
@@ -360,7 +360,7 @@ window.__ModuleLoader__.load({
 			const observed = useJobs((state) => state.observed);
 			const [collapsed, setCollapsed] = React.useState(false);
 			const panelRef = React.useRef(null);
-			const { position, dragging, handlers } = useDraggable(panelRef, () => setCollapsed((value) => !value));
+			const { position, dragging, consumeDrag, handlers } = useDraggable(panelRef);
 			const positionStyle = position === null ? undefined : { left: `${position.x}px`, top: `${position.y}px`, right: "auto", bottom: "auto" };
 			React.useEffect(() => watchRows(sessionId), [sessionId, watchRows]);
 			const now = useNow(jobs.length > 0);
@@ -408,6 +408,10 @@ window.__ModuleLoader__.load({
 				"aria-expanded": !collapsed,
 				"aria-label": collapsed ? t("expand") : t("collapse"),
 				...handlers,
+				onClick: () => {
+					if (consumeDrag()) return;
+					setCollapsed((value) => !value);
+				},
 				onKeyDown: (event) => {
 					if (event.key === "Enter" || event.key === " ") {
 						event.preventDefault();
@@ -427,6 +431,10 @@ window.__ModuleLoader__.load({
 					className: "djp-pill",
 					...handlers,
 					style: positionStyle,
+					onClick: () => {
+						if (consumeDrag()) return;
+						setCollapsed(false);
+					},
 					title: t("expand"),
 					children: [
 						jsx("span", { children: `${t("title")} ${t("count", { n: rows.length })}` }),
