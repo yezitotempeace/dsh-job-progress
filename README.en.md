@@ -24,6 +24,10 @@ At most 4 rows; the rest collapse into "N more".
 
 - Click the header to collapse into a pill: `Background jobs 2` + aggregate bar +
   average percentage; click again to expand.
+- **The whole card drags**: press the header and move it anywhere on screen; the spot
+  is remembered in the browser (`localStorage`, key `dsh-job-progress/position`) and
+  restored after a reload. The collapsed pill drags too, and positions are clamped to
+  the viewport.
 - A settled job stays for **8 seconds** with its final state, then the card goes away
   (nothing renders when there are no jobs).
 - Only the **current session** is watched; output streams are subscribed on demand
@@ -47,7 +51,8 @@ wget, curl (default table and `-#` bar), apt, pip, npm, and anything that prints
 | Data | `ctx.jobs.state` (roster) + `ctx.jobs.watchRows(sessionId)` + `ctx.jobs.observe(sessionId, id)` |
 | Mount | `conversation.session.header.actions` (only for `sessionId`), rendered into `document.body` through `createPortal` |
 | Parsing | pure `parseProgress(text)`: strip ANSI → split on `\r\n` → scan the tail for `%` / curl's table → speed, ETA, byte ratio |
-| Rendering | fixed bottom-right, `z-index: 60`, safe-area-aware `bottom`, theme tokens for colour |
+| Rendering | fixed position, `z-index: 60`, bottom-right by default (safe-area-aware `bottom`), theme tokens for colour |
+| Dragging | pointer events + `setPointerCapture`; movement past 4px counts as a drag, otherwise a click; position clamped to the viewport and written to `localStorage` |
 
 Never reads conversation content and issues no extra network requests (only the job
 output stream).
@@ -60,7 +65,8 @@ node test/smoke.mjs
 ```
 
 Covers bundle registration and inject, and `parseProgress` for wget/apt/curl
-table/curl bar/pip/ANSI/`\r` updates/byte ratio/ETA, plain logs not misread, empty output.
+table/curl bar/pip/ANSI/`\r` updates/byte ratio/ETA, plain logs not misread, empty
+output, and the drag-position clamp.
 
 ## Install
 
