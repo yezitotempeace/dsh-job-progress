@@ -38,6 +38,10 @@ window.__ModuleLoader__.load({
 		const LINGER_MS = 8000;
 		/** At most this many rows are rendered; the rest collapse into a counter. */
 		const MAX_ROWS = 4;
+		/** Where the reader parked the card, in viewport pixels. */
+		const POSITION_KEY = "dsh-job-progress/position";
+		/** Pointer travel before a press becomes a drag instead of a click. */
+		const DRAG_THRESHOLD = 4;
 		/** Stable empty roster so a session with no jobs keeps one array identity. */
 		const NO_JOBS = [];
 
@@ -75,7 +79,8 @@ window.__ModuleLoader__.load({
 		/** Card styles; colours come from the theme tokens. */
 		const CSS = `
 .djp-card{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom, 0px) + 92px);z-index:60;width:340px;max-width:calc(100vw - 32px);box-sizing:border-box;border-radius:14px;background:var(--dsw-specific-menu, #1f1f22);box-shadow:var(--dsw-elevation-prominent, 0 8px 30px rgba(0,0,0,.35));border:.5px solid var(--dsw-alias-border-l1, rgba(255,255,255,.08));overflow:hidden;font-size:12px;color:var(--dsw-alias-label-primary,#eee)}
-.djp-head{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;user-select:none}
+.djp-head{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:grab;user-select:none;touch-action:none}
+.djp-card[data-dragging="true"] .djp-head{cursor:grabbing}
 .djp-title{font-weight:600;font-size:12px}
 .djp-count{color:var(--dsw-alias-label-tertiary,#999);font-size:11px}
 .djp-chevron{margin-left:auto;display:inline-flex;color:var(--dsw-alias-label-tertiary,#999)}
@@ -97,7 +102,7 @@ window.__ModuleLoader__.load({
 @keyframes djp-slide{0%{left:-30%}100%{left:100%}}
 .djp-tail{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:10.5px;line-height:15px;color:var(--dsw-alias-label-tertiary,#999);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .djp-more{padding:2px 8px 4px;color:var(--dsw-alias-label-tertiary,#999);font-size:10.5px}
-.djp-pill{position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom, 0px) + 92px);z-index:60;display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:var(--dsw-specific-menu,#1f1f22);box-shadow:var(--dsw-elevation-prominent,0 8px 30px rgba(0,0,0,.35));border:.5px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));font-size:11.5px;color:var(--dsw-alias-label-primary,#eee);cursor:pointer}
+.djp-pill{touch-action:none;cursor:grab;position:fixed;right:16px;bottom:calc(env(safe-area-inset-bottom, 0px) + 92px);z-index:60;display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;background:var(--dsw-specific-menu,#1f1f22);box-shadow:var(--dsw-elevation-prominent,0 8px 30px rgba(0,0,0,.35));border:.5px solid var(--dsw-alias-border-l1,rgba(255,255,255,.08));font-size:11.5px;color:var(--dsw-alias-label-primary,#eee);cursor:pointer}
 .djp-pill-bar{width:54px;height:3px;border-radius:2px;background:var(--dsw-alias-fill-l2,rgba(255,255,255,.12));overflow:hidden}
 .djp-pill-fill{height:100%;background:var(--dsw-alias-state-success-primary,#2fb344);border-radius:2px}
 `;
@@ -185,6 +190,112 @@ window.__ModuleLoader__.load({
 			}, [active]);
 			return now;
 		}
+
+		/** Keep a number inside [min, max]; a zero-size viewport collapses to min. */
+		function clamp(value, min, max) {
+			return Math.min(Math.max(value, min), Math.max(min, max));
+		}
+
+		/** Read the parked position, or null for the default bottom-right corner. */
+		function readSavedPosition() {
+			try {
+				const raw = window.localStorage.getItem(POSITION_KEY);
+				if (raw === null) return null;
+				const parsed = JSON.parse(raw);
+				if (typeof parsed?.x === "number" && typeof parsed?.y === "number") return { x: parsed.x, y: parsed.y };
+			} catch {
+				// Corrupt or unavailable storage falls back to the default corner.
+			}
+			return null;
+		}
+
+		/** Persist the parked position; failures are non-fatal. */
+		function savePosition(position) {
+			try {
+				window.localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+			} catch {
+				// Private mode: the card still drags, it just forgets after a reload.
+			}
+		}
+
+		/**
+		 * Pointer drag for a fixed-position element: press anywhere on the handle,
+		 * move past a small threshold, and the element follows; a press that never
+		 * crosses the threshold counts as a tap. The position is clamped to the
+		 * viewport and persisted after a drag.
+		 * @param ref - the element being moved.
+		 * @param onTap - runs for a press that did not turn into a drag.
+		 */
+		function useDraggable(ref, onTap) {
+			const [position, setPositionState] = React.useState(readSavedPosition);
+			const [dragging, setDragging] = React.useState(false);
+			const positionRef = React.useRef(position);
+			const dragRef = React.useRef(null);
+			const movedRef = React.useRef(false);
+			const tapRef = React.useRef(onTap);
+			tapRef.current = onTap;
+			const setPosition = React.useCallback((next) => {
+				positionRef.current = next;
+				setPositionState(next);
+			}, []);
+			React.useEffect(() => {
+				const onResize = () => {
+					const current = positionRef.current;
+					const element = ref.current;
+					if (current === null || element === null) return;
+					setPosition({
+						x: clamp(current.x, 0, window.innerWidth - element.offsetWidth),
+						y: clamp(current.y, 0, window.innerHeight - element.offsetHeight)
+					});
+				};
+				window.addEventListener("resize", onResize);
+				return () => window.removeEventListener("resize", onResize);
+			}, [ref, setPosition]);
+			return {
+				position,
+				dragging,
+				handlers: {
+					onPointerDown(event) {
+						if (event.button !== undefined && event.button !== 0) return;
+						const element = ref.current;
+						if (element === null) return;
+						const rect = element.getBoundingClientRect();
+						dragRef.current = { dx: event.clientX - rect.left, dy: event.clientY - rect.top, x: event.clientX, y: event.clientY };
+						movedRef.current = false;
+						element.setPointerCapture?.(event.pointerId);
+						setDragging(true);
+					},
+					onPointerMove(event) {
+						const drag = dragRef.current;
+						if (drag === null) return;
+						if (!movedRef.current && Math.abs(event.clientX - drag.x) + Math.abs(event.clientY - drag.y) < DRAG_THRESHOLD) return;
+						movedRef.current = true;
+						const element = ref.current;
+						if (element === null) return;
+						setPosition({
+							x: clamp(event.clientX - drag.dx, 0, window.innerWidth - (element.offsetWidth || 340)),
+							y: clamp(event.clientY - drag.dy, 0, window.innerHeight - (element.offsetHeight || 120))
+						});
+					},
+					onPointerUp(event) {
+						const drag = dragRef.current;
+						dragRef.current = null;
+						setDragging(false);
+						ref.current?.releasePointerCapture?.(event.pointerId);
+						if (drag === null) return;
+						if (movedRef.current) {
+							if (positionRef.current !== null) savePosition(positionRef.current);
+							return;
+						}
+						tapRef.current?.();
+					},
+					onPointerCancel() {
+						dragRef.current = null;
+						setDragging(false);
+					}
+				}
+			};
+		}
 		//#endregion
 
 		//#region components
@@ -248,6 +359,9 @@ window.__ModuleLoader__.load({
 			const jobs = useJobs((state) => state.rows[sessionId]) ?? NO_JOBS;
 			const observed = useJobs((state) => state.observed);
 			const [collapsed, setCollapsed] = React.useState(false);
+			const panelRef = React.useRef(null);
+			const { position, dragging, handlers } = useDraggable(panelRef, () => setCollapsed((value) => !value));
+			const positionStyle = position === null ? undefined : { left: `${position.x}px`, top: `${position.y}px`, right: "auto", bottom: "auto" };
 			React.useEffect(() => watchRows(sessionId), [sessionId, watchRows]);
 			const now = useNow(jobs.length > 0);
 			const liveIds = React.useMemo(
@@ -293,7 +407,7 @@ window.__ModuleLoader__.load({
 				tabIndex: 0,
 				"aria-expanded": !collapsed,
 				"aria-label": collapsed ? t("expand") : t("collapse"),
-				onClick: () => setCollapsed((value) => !value),
+				...handlers,
 				onKeyDown: (event) => {
 					if (event.key === "Enter" || event.key === " ") {
 						event.preventDefault();
@@ -309,8 +423,10 @@ window.__ModuleLoader__.load({
 			if (collapsed) {
 				return createPortal(jsxs("button", {
 					type: "button",
+					ref: panelRef,
 					className: "djp-pill",
-					onClick: () => setCollapsed(false),
+					...handlers,
+					style: positionStyle,
 					title: t("expand"),
 					children: [
 						jsx("span", { children: `${t("title")} ${t("count", { n: rows.length })}` }),
@@ -323,7 +439,10 @@ window.__ModuleLoader__.load({
 				}), document.body);
 			}
 			return createPortal(jsxs("div", {
+				ref: panelRef,
 				className: "djp-card",
+				"data-dragging": dragging ? "true" : "false",
+				style: positionStyle,
 				children: [
 					header,
 					jsxs("div", {
@@ -377,7 +496,7 @@ window.__ModuleLoader__.load({
 
 		/** Services this plugin needs before it can register its UI. */
 		const inject = ["jobs", "slots", "locale"];
-		if (window.__DSH_JOB_PROGRESS_DEBUG__ === true) window.__dshJobProgress = { parseProgress };
+		if (window.__DSH_JOB_PROGRESS_DEBUG__ === true) window.__dshJobProgress = { parseProgress, clamp };
 		return { inject, apply };
 	}
 });
