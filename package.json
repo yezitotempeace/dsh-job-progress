@@ -1,8 +1,8 @@
 {
   "name": "dsh-job-progress",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
-  "description": "悬浮卡片显示后台任务的下载/运行进度：进度条、百分比、速度、剩余时间和最新输出",
+  "description": "可拖动的悬浮卡片，显示后台任务的下载/运行进度：进度条、百分比、耗时和最新输出",
   "type": "module",
   "main": "index.js",
   "exports": {
