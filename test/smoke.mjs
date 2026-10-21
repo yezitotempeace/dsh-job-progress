@@ -129,6 +129,10 @@ check("plain log has no percentage", plain.percent === null, JSON.stringify(plai
 check("plain log keeps the tail line", plain.line === "linking…", plain.line);
 
 check("empty output", parseProgress("").percent === null);
+
+const { clamp } = window.__dshJobProgress;
+check("clamp keeps inside", clamp(120, 0, 100) === 100 && clamp(-8, 0, 100) === 0 && clamp(42, 0, 100) === 42);
+check("clamp survives a zero-width viewport", clamp(10, 20, 20) === 20);
 //#endregion
 
 console.log(failures === 0 ? "[job-progress] PASS" : `[job-progress] FAILED (${failures})`);
